@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Blue Dragon AI Hub — Local-first AI connector. Run powerful AI on your machine, privately.">
+    <title>Blue Dragon AI Hub</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <div id="app">
+        <!-- ═══ Sidebar ═══ -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">🐉</span>
+                    <span class="logo-text">Blue Dragon</span>
+                </div>
+                <button id="btn-new-chat" class="btn-new-chat" title="New Chat">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+            </div>
+
+            <!-- Model Selector -->
+            <div class="sidebar-section">
+                <div class="section-label">Model</div>
+                <div id="model-selector" class="model-selector">
+                    <div class="model-current" id="model-current">
+                        <span class="model-icon">🧠</span>
+                        <span class="model-name" id="active-model-name">Loading...</span>
+                        <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                    </div>
+                    <div class="model-dropdown" id="model-dropdown">
+                        <div class="dropdown-header">Select Model</div>
+                        <div id="model-list" class="model-list"></div>
+                        <div class="dropdown-footer">
+                            <button id="btn-model-portal" class="btn-text">📥 Download Models</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tier Selector -->
+            <div class="sidebar-section">
+                <div class="section-label">Inference Tier</div>
+                <div class="tier-selector">
+                    <button class="tier-btn active" data-tier="local" id="tier-local" title="Local (Ollama)">
+                        <span>💻</span> Local
+                    </button>
+                    <button class="tier-btn" data-tier="cloud" id="tier-cloud" title="Cloud API">
+                        <span>☁️</span> Cloud
+                    </button>
+                </div>
+            </div>
+
+            <!-- Skill Dock -->
+            <div class="sidebar-section">
+                <div class="section-label">
+                    Skills
+                    <button id="btn-add-skill" class="btn-icon-sm" title="Add Skill File">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                    </button>
+                </div>
+                <div id="skill-dock" class="skill-dock">
+                    <div class="skill-empty-state">
+                        <span>📄</span>
+                        <p>Drop .md skill files here</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Memory Stats -->
+            <div class="sidebar-section">
+                <div class="section-label">Memory</div>
+                <div id="memory-stats" class="memory-stats">
+                    <div class="stat-row">
+                        <span class="stat-label">Entries</span>
+                        <span class="stat-value" id="memory-count">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Size</span>
+                        <span class="stat-value" id="memory-size">0 MB</span>
+                    </div>
+                    <div class="memory-bar">
+                        <div class="memory-bar-fill" id="memory-bar-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat History -->
+            <div class="sidebar-section sidebar-section-grow">
+                <div class="section-label">History</div>
+                <div id="chat-history" class="chat-history">
+                    <div class="history-empty">No conversations yet</div>
+                </div>
+            </div>
+
+            <!-- Sidebar Footer -->
+            <div class="sidebar-footer">
+                <button id="btn-settings" class="btn-sidebar-footer" title="Settings">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                    <span>Settings</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ═══ Main Chat Area ═══ -->
+        <main id="main" class="main">
+            <!-- Top Bar -->
+            <header class="topbar">
+                <button id="btn-toggle-sidebar" class="btn-icon" title="Toggle Sidebar">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+                </button>
+                <div class="topbar-info">
+                    <span id="topbar-model" class="topbar-model">🐉 Blue Dragon AI</span>
+                    <span id="topbar-status" class="topbar-status">Ready</span>
+                </div>
+                <div class="topbar-actions">
+                    <button id="btn-web-search-toggle" class="btn-icon toggle-pill" title="Toggle Web Search">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                        <span>Search</span>
+                    </button>
+                    <button id="btn-memory-toggle" class="btn-icon toggle-pill active" title="Toggle Memory">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 110 20 10 10 0 010-20z"/><path d="M12 6v6l4 2"/></svg>
+                        <span>Memory</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Chat Messages -->
+            <div id="chat-container" class="chat-container">
+                <!-- Welcome Screen -->
+                <div id="welcome-screen" class="welcome-screen">
+                    <div class="welcome-icon">🐉</div>
+                    <h1 class="welcome-title">Blue Dragon AI Hub</h1>
+                    <p class="welcome-subtitle">Your local AI connector — private, fast, yours.</p>
+                    <div class="welcome-features">
+                        <div class="feature-card">
+                            <span class="feature-icon">🧠</span>
+                            <span class="feature-label">Local SLM</span>
+                            <span class="feature-desc">Runs on your machine</span>
+                        </div>
+                        <div class="feature-card">
+                            <span class="feature-icon">📄</span>
+                            <span class="feature-label">Skill Files</span>
+                            <span class="feature-desc">Dock & power up</span>
+                        </div>
+                        <div class="feature-card">
+                            <span class="feature-icon">🔍</span>
+                            <span class="feature-label">Web Search</span>
+                            <span class="feature-desc">Live info when needed</span>
+                        </div>
+                        <div class="feature-card">
+                            <span class="feature-icon">💾</span>
+                            <span class="feature-label">Memory</span>
+                            <span class="feature-desc">Remembers everything</span>
+                        </div>
+                    </div>
+                    <div class="welcome-quickstart">
+                        <p>Try asking something →</p>
+                    </div>
+                </div>
+
+                <!-- Messages will be inserted here -->
+                <div id="messages" class="messages"></div>
+
+                <!-- Typing Indicator -->
+                <div id="typing-indicator" class="typing-indicator hidden">
+                    <div class="typing-avatar">🐉</div>
+                    <div class="typing-dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <div class="input-tools">
+                        <div id="active-skills-badges" class="active-skills-badges"></div>
+                    </div>
+                    <div class="input-row">
+                        <textarea
+                            id="chat-input"
+                            class="chat-input"
+                            placeholder="Message Blue Dragon..."
+                            rows="1"
+                            autofocus
+                        ></textarea>
+                        <button id="btn-send" class="btn-send" title="Send Message" disabled>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                        </button>
+                    </div>
+                    <div class="input-footer">
+                        <span class="input-hint">Press Enter to send, Shift+Enter for new line</span>
+                        <span id="token-counter" class="token-counter"></span>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- ═══ Settings Modal ═══ -->
+        <div id="modal-settings" class="modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Settings</h2>
+                    <button class="btn-close-modal">✕</button>
+                </div>
+                <div class="modal-body">
+                    <!-- Tier Config -->
+                    <div class="settings-group">
+                        <h3>☁️ Cloud Tier Configuration</h3>
+                        <div class="form-field">
+                            <label for="cloud-provider">Provider</label>
+                            <select id="cloud-provider" class="form-select">
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic (Claude)</option>
+                                <option value="google">Google (Gemini)</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label for="cloud-api-key">API Key</label>
+                            <input type="password" id="cloud-api-key" class="form-input" placeholder="sk-...">
+                        </div>
+                        <button id="btn-save-cloud" class="btn-primary">Save Cloud Settings</button>
+                    </div>
+
+                    <!-- Connection Config (Google Forms style) -->
+                    <div class="settings-group">
+                        <h3>🔗 Connections</h3>
+                        <div class="connection-form">
+                            <div class="form-field">
+                                <label>Web Search</label>
+                                <div class="toggle-row">
+                                    <span>Enable live search</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-search" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div class="toggle-row">
+                                    <span>Auto-search when uncertain</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-auto-search" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-field">
+                                <label>Memory</label>
+                                <div class="toggle-row">
+                                    <span>Save conversations to memory</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-memory-save" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div class="toggle-row">
+                                    <span>Query memory before responding</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-memory-query" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Danger Zone -->
+                    <div class="settings-group settings-danger">
+                        <h3>⚠️ Danger Zone</h3>
+                        <button id="btn-clear-memory" class="btn-danger">Clear All Memory</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ Model Portal Modal ═══ -->
+        <div id="modal-models" class="modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content modal-wide">
+                <div class="modal-header">
+                    <h2>📥 Model Portal</h2>
+                    <button class="btn-close-modal">✕</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-desc">Download SLMs to run locally. Pick based on your hardware.</p>
+                    <div id="model-portal-list" class="model-portal-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/chat.js"></script>
+    <script src="js/sidebar.js"></script>
+    <script src="js/settings.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
