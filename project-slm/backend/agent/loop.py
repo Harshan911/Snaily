@@ -6,7 +6,10 @@ Reason → Tool Call → Observe → Respond.
 import uuid
 import json
 import re
+import logging
 from typing import Optional, List, Dict, AsyncGenerator
+
+logger = logging.getLogger(__name__)
 
 
 class AgentLoop:
@@ -32,9 +35,17 @@ class AgentLoop:
         self.api_key = None
         self.api_provider = None
         self.conversations: Dict[str, List[Dict]] = {}  # in-memory conversation history
+        self._max_conversations = 100  # evict oldest when exceeded
+        self._max_history_per_conversation = 50  # max messages per conversation
+
+    VALID_TIERS = {"local", "cloud"}
 
     def set_tier(self, tier: str, api_key: str = None, api_provider: str = None):
         """Switch between local and cloud inference."""
+        if tier not in self.VALID_TIERS:
+            raise ValueError(f"Invalid tier '{tier}'. Must be one of: {', '.join(self.VALID_TIERS)}")
+        if tier == "cloud" and not api_key:
+            raise ValueError("Cloud tier requires an API key.")
         self.current_tier = tier
         self.api_key = api_key
         self.api_provider = api_provider
@@ -47,34 +58,58 @@ class AgentLoop:
         return self.local_inference
 
     def _get_or_create_conversation(self, conversation_id: Optional[str]) -> tuple:
-        """Get existing or create new conversation."""
+        """Get existing or create new conversation. Evicts oldest if over limit."""
         if conversation_id and conversation_id in self.conversations:
             return conversation_id, self.conversations[conversation_id]
         new_id = conversation_id or str(uuid.uuid4())
+        # Evict oldest conversations if over limit
+        if len(self.conversations) >= self._max_conversations:
+            oldest_key = next(iter(self.conversations))
+            del self.conversations[oldest_key]
+            logger.info(f"Evicted oldest conversation {oldest_key} (limit: {self._max_conversations})")
         self.conversations[new_id] = []
         return new_id, self.conversations[new_id]
 
     async def run(self, user_message: str, conversation_id: Optional[str] = None,
-                  active_skills: List[dict] = None) -> dict:
+                  active_skills: List[dict] = None, web_search: bool = False,
+                  use_memory: bool = True) -> dict:
         """
         Full agent loop — non-streaming.
         Returns: {"reply": str, "conversation_id": str, "tools_used": list}
         """
+        if not user_message or not user_message.strip():
+            raise ValueError("Message cannot be empty.")
         conv_id, history = self._get_or_create_conversation(conversation_id)
         tools_used = []
 
-        # Step 1: Retrieve relevant memory
-        memory_context = await self._retrieve_memory(user_message)
+        # Step 1: Retrieve relevant memory (if enabled)
+        memory_context = ""
+        if use_memory:
+            memory_context = await self._retrieve_memory(user_message)
 
-        # Step 2: Build system prompt with skills + memory
+        # Step 2: Auto-search the web if enabled (ChatGPT-style)
+        web_context = ""
+        if web_search:
+            web_context = await self._auto_web_search(user_message)
+            if web_context:
+                tools_used.append("web_search")
+
+        # Step 3: Build system prompt with skills + memory + web results
+        available_tools = self.tool_registry.get_tool_descriptions()
         system_prompt = self.prompt_builder.build(
             active_skills=active_skills or [],
             memory_context=memory_context,
-            available_tools=self.tool_registry.get_tool_descriptions(),
+            available_tools=available_tools,
+            web_context=web_context,
         )
 
         # Step 3: Add user message to history
         history.append({"role": "user", "content": user_message})
+
+        # Trim history if too long to prevent context overflow
+        if len(history) > self._max_history_per_conversation:
+            # Keep system-important first message + last N messages
+            history[:] = history[-self._max_history_per_conversation:]
 
         # Step 4: Run inference loop (may loop for tool calls)
         max_tool_rounds = 3
@@ -110,7 +145,8 @@ class AgentLoop:
 
         # Step 8: Save to history and memory
         history.append({"role": "assistant", "content": final_reply})
-        await self._save_to_memory(user_message, final_reply, conv_id)
+        if use_memory:
+            await self._save_to_memory(user_message, final_reply, conv_id)
 
         return {
             "reply": final_reply,
@@ -119,37 +155,63 @@ class AgentLoop:
         }
 
     async def run_stream(self, user_message: str, conversation_id: Optional[str] = None,
-                         active_skills: List[dict] = None) -> AsyncGenerator:
+                         active_skills: List[dict] = None, web_search: bool = False,
+                         use_memory: bool = True) -> AsyncGenerator:
         """
         Streaming agent loop — yields token chunks.
-        For tool calls, runs non-streaming first, then streams final response.
+        For tool calls, runs non-streaming first (up to max rounds), then streams final response.
         """
+        if not user_message or not user_message.strip():
+            yield {"token": "⚠️ Message cannot be empty.", "conversation_id": ""}
+            yield {"done": True, "conversation_id": "", "tools_used": []}
+            return
+
         conv_id, history = self._get_or_create_conversation(conversation_id)
         tools_used = []
 
-        # Retrieve memory
-        memory_context = await self._retrieve_memory(user_message)
+        # Retrieve memory (if enabled)
+        memory_context = ""
+        if use_memory:
+            memory_context = await self._retrieve_memory(user_message)
+
+        # Auto-search the web if enabled (ChatGPT-style)
+        web_context = ""
+        if web_search:
+            web_context = await self._auto_web_search(user_message)
+            if web_context:
+                tools_used.append("web_search")
+                # Let user know search is happening
+                yield {"token": "🔍 Searching the web...\n\n", "conversation_id": conv_id}
 
         # Build prompt
+        available_tools = self.tool_registry.get_tool_descriptions()
         system_prompt = self.prompt_builder.build(
             active_skills=active_skills or [],
             memory_context=memory_context,
-            available_tools=self.tool_registry.get_tool_descriptions(),
+            available_tools=available_tools,
+            web_context=web_context,
         )
 
         history.append({"role": "user", "content": user_message})
 
-        # First pass: check for tool calls (non-streaming)
+        # Trim history if too long
+        if len(history) > self._max_history_per_conversation:
+            history[:] = history[-self._max_history_per_conversation:]
+
+        # Multi-round tool call handling (non-streaming) before final stream
         inference = self._get_inference()
-        first_response = await inference.generate(
-            model=self.model_manager.active_model,
-            system_prompt=system_prompt,
-            messages=history,
-        )
+        max_tool_rounds = 3
+        for _ in range(max_tool_rounds):
+            first_response = await inference.generate(
+                model=self.model_manager.active_model,
+                system_prompt=system_prompt,
+                messages=history,
+            )
 
-        tool_calls = self._parse_tool_calls(first_response)
+            tool_calls = self._parse_tool_calls(first_response)
+            if not tool_calls:
+                break
 
-        if tool_calls:
             # Execute tools
             tool_results = await self._execute_tools(tool_calls)
             tools_used.extend([tc["tool"] for tc in tool_calls])
@@ -173,7 +235,8 @@ class AgentLoop:
 
         final_reply = self._clean_response(collected)
         history.append({"role": "assistant", "content": final_reply})
-        await self._save_to_memory(user_message, final_reply, conv_id)
+        if use_memory:
+            await self._save_to_memory(user_message, final_reply, conv_id)
 
         yield {
             "done": True,
@@ -191,7 +254,29 @@ class AgentLoop:
             for r in results:
                 memory_lines.append(f"- {r['content']} (relevance: {r['score']:.2f})")
             return "\n".join(memory_lines)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Memory retrieval failed: {e}")
+            return ""
+
+    async def _auto_web_search(self, query: str) -> str:
+        """
+        Automatically search the web with the user's query.
+        Returns formatted search results to inject into the prompt context.
+        This is the ChatGPT-style web search: automatic, not tool-call-based.
+        """
+        search_tool = self.tool_registry.get("web_search")
+        if not search_tool:
+            logger.warning("Web search tool not registered, skipping auto-search")
+            return ""
+
+        try:
+            result = await search_tool.execute({"query": query})
+            if result and "No results found" not in result and "Search failed" not in result and not result.startswith("Error:"):
+                logger.info(f"Auto web search completed for: {query[:80]}...")
+                return result
+            return ""
+        except Exception as e:
+            logger.warning(f"Auto web search failed: {e}")
             return ""
 
     async def _save_to_memory(self, user_msg: str, assistant_msg: str, conv_id: str):
@@ -202,8 +287,8 @@ class AgentLoop:
                 content=combined,
                 metadata={"conversation_id": conv_id},
             )
-        except Exception:
-            pass  # Memory save failure should not break chat
+        except Exception as e:
+            logger.warning(f"Memory save failed (chat continues): {e}")
 
     def _parse_tool_calls(self, response: str) -> List[dict]:
         """

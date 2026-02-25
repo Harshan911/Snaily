@@ -5,7 +5,7 @@ Prompt Builder — Assembles the system prompt from base + skills + memory + too
 from typing import List
 
 
-BASE_SYSTEM_PROMPT = """You are Blue Dragon AI — a helpful, precise, and honest assistant running locally on the user's machine.
+BASE_SYSTEM_PROMPT = """You are Snaily — a helpful, precise, and honest assistant running locally on the user's machine.
 
 Core Rules:
 - Be direct. No fluff. Get the job done.
@@ -31,7 +31,8 @@ class PromptBuilder:
 
     def build(self, active_skills: List[dict] = None,
               memory_context: str = "",
-              available_tools: List[dict] = None) -> str:
+              available_tools: List[dict] = None,
+              web_context: str = "") -> str:
         """
         Assemble final system prompt.
 
@@ -39,6 +40,7 @@ class PromptBuilder:
             active_skills: List of parsed skill dicts (from SkillParser)
             memory_context: Relevant past context from memory RAG
             available_tools: List of tool descriptions for the SLM
+            web_context: Live web search results to ground the response
         """
         parts = [BASE_SYSTEM_PROMPT]
 
@@ -49,6 +51,10 @@ class PromptBuilder:
         # Inject available tools
         if available_tools:
             parts.append(self._build_tools_section(available_tools))
+
+        # Inject web search results (highest priority context)
+        if web_context:
+            parts.append(self._build_web_section(web_context))
 
         # Inject memory context
         if memory_context:
@@ -106,4 +112,16 @@ class PromptBuilder:
             "## Relevant Context from Past Conversations\n"
             "Use this if relevant to the current question:\n"
             f"{memory_context}"
+        )
+
+    def _build_web_section(self, web_context: str) -> str:
+        """Build the web search results block."""
+        return (
+            "## Live Web Search Results\n"
+            "The user has web search ENABLED. The following are FRESH results "
+            "from the web for this query. Use these as your PRIMARY source of "
+            "truth. Cite sources when possible. If the results are relevant, "
+            "incorporate them into your answer. If not relevant, answer from "
+            "your own knowledge and mention the search didn't find useful results.\n\n"
+            f"{web_context}"
         )

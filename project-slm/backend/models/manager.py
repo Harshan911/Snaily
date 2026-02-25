@@ -2,8 +2,17 @@
 Model Manager — Download, list, switch SLMs via Ollama.
 """
 
-import ollama
+import logging
 from typing import Optional, List, Dict
+
+logger = logging.getLogger(__name__)
+
+try:
+    import ollama
+    HAS_OLLAMA = True
+except ImportError:
+    HAS_OLLAMA = False
+    logger.warning("Ollama package not installed. Model management will not be available.")
 
 
 class ModelManager:
@@ -15,6 +24,8 @@ class ModelManager:
 
     def _get_client(self):
         """Lazy init Ollama client."""
+        if not HAS_OLLAMA:
+            raise RuntimeError("Ollama package not installed. Run: pip install ollama")
         if not self._client:
             self._client = ollama.AsyncClient()
         return self._client
@@ -98,7 +109,11 @@ class ModelManager:
                 break
 
         if not matched:
-            # If model just downloaded, accept it directly
+            # If model just downloaded, accept it directly but log a warning
+            logger.warning(
+                f"Model '{model_name}' not found in installed list. "
+                "Setting as active anyway (may have just been downloaded)."
+            )
             self.active_model = model_name
             return
 

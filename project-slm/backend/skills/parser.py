@@ -3,9 +3,12 @@ Skill Parser — Reads .md/.yaml skill files, extracts structure for prompt inje
 """
 
 import os
+import logging
 import frontmatter
 from typing import List, Dict, Optional
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 SKILL_DOCK_DIR = Path(__file__).parent / "dock"
@@ -51,25 +54,36 @@ class SkillParser:
 
     def activate(self, filename: str) -> Dict:
         """Activate a skill by filename."""
-        if filename not in self._all_skills:
+        # Sanitize filename to prevent path traversal
+        safe_name = Path(filename).name
+        if safe_name != filename or '..' in filename:
+            raise ValueError(f"Invalid filename: '{filename}'")
+
+        if safe_name not in self._all_skills:
             # Try reloading
-            filepath = self.dock_dir / filename
+            filepath = self.dock_dir / safe_name
+            # Verify the resolved path stays within dock directory
+            try:
+                filepath.resolve().relative_to(self.dock_dir.resolve())
+            except ValueError:
+                raise ValueError(f"Filename escapes skill dock directory: '{filename}'")
             if not filepath.exists():
-                raise FileNotFoundError(f"Skill file '{filename}' not found in dock")
+                raise FileNotFoundError(f"Skill file '{safe_name}' not found in dock")
             parsed = self._parse_file(filepath)
             if not parsed:
-                raise ValueError(f"Failed to parse '{filename}'")
-            self._all_skills[filename] = parsed
+                raise ValueError(f"Failed to parse '{safe_name}'")
+            self._all_skills[safe_name] = parsed
 
-        skill = self._all_skills[filename]
+        skill = self._all_skills[safe_name]
 
         # Don't activate twice
-        if any(s.get("_filename") == filename for s in self.active_skills):
+        if any(s.get("_filename") == safe_name for s in self.active_skills):
             return skill
 
         skill_copy = dict(skill)
-        skill_copy["_filename"] = filename
+        skill_copy["_filename"] = safe_name
         self.active_skills.append(skill_copy)
+        logger.info(f"Skill activated: {safe_name}")
         return skill
 
     def deactivate(self, filename: str):

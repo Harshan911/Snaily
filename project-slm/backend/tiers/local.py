@@ -2,8 +2,17 @@
 Local Inference — Calls Ollama for local SLM inference.
 """
 
-import ollama
+import logging
 from typing import List, Dict, AsyncGenerator
+
+logger = logging.getLogger(__name__)
+
+try:
+    import ollama
+    HAS_OLLAMA = True
+except ImportError:
+    HAS_OLLAMA = False
+    logger.warning("Ollama package not installed. Local inference will not be available.")
 
 
 class LocalInference:
@@ -13,6 +22,8 @@ class LocalInference:
         self._client = None
 
     def _get_client(self):
+        if not HAS_OLLAMA:
+            raise RuntimeError("Ollama package not installed. Run: pip install ollama")
         if not self._client:
             self._client = ollama.AsyncClient()
         return self._client
@@ -40,6 +51,7 @@ class LocalInference:
                 return str(response)
         except Exception as e:
             error_msg = str(e)
+            logger.warning(f"Local inference error: {error_msg}")
             if "connection" in error_msg.lower() or "refused" in error_msg.lower():
                 return (
                     "⚠️ Cannot connect to Ollama. "
@@ -80,6 +92,7 @@ class LocalInference:
                     yield token
         except Exception as e:
             error_msg = str(e)
+            logger.warning(f"Local stream error: {error_msg}")
             if "connection" in error_msg.lower() or "refused" in error_msg.lower():
                 yield (
                     "⚠️ Cannot connect to Ollama. "

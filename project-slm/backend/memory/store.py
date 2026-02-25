@@ -8,6 +8,9 @@ from pathlib import Path
 import uuid
 import json
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 MEMORY_DIR = Path(__file__).parent / "data"
 
@@ -70,8 +73,8 @@ class MemoryStore:
                 json.dumps(self._fallback_store, ensure_ascii=False, indent=2),
                 encoding="utf-8"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to persist fallback memory store: {e}")
 
     async def add(self, content: str, metadata: dict = None):
         """Add a conversation turn to memory."""
@@ -89,8 +92,8 @@ class MemoryStore:
                     metadatas=[meta],
                 )
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"ChromaDB add failed: {e}")
 
         # Fallback
         self._fallback_store.append({
@@ -123,8 +126,8 @@ class MemoryStore:
                             "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
                         })
                 return formatted
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"ChromaDB query failed: {e}")
 
         # Fallback: simple keyword matching
         if not self._fallback_store:
@@ -158,9 +161,15 @@ class MemoryStore:
     async def size_mb(self) -> float:
         """Estimate memory store size on disk."""
         total = 0
-        for f in self.persist_dir.rglob("*"):
-            if f.is_file():
-                total += f.stat().st_size
+        try:
+            for f in self.persist_dir.rglob("*"):
+                if f.is_file():
+                    try:
+                        total += f.stat().st_size
+                    except OSError:
+                        pass  # Permission denied or file locked
+        except Exception as e:
+            logger.warning(f"Error calculating memory size: {e}")
         return round(total / (1024 * 1024), 2)
 
     async def clear(self):
@@ -172,8 +181,9 @@ class MemoryStore:
                     name="blue_dragon_memory",
                     metadata={"hnsw:space": "cosine"},
                 )
-            except Exception:
-                pass
+                logger.info("ChromaDB memory cleared")
+            except Exception as e:
+                logger.warning(f"ChromaDB clear failed: {e}")
 
         # Clear fallback too
         self._fallback_store = []

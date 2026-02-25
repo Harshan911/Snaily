@@ -71,6 +71,14 @@ const Chat = {
         this._setGenerating(true);
 
         try {
+            // Read toggle states — check input area toggle first, then topbar
+            const searchToggle = document.getElementById('input-toggle-search');
+            const topbarSearch = document.getElementById('btn-web-search-toggle');
+            const topbarMemory = document.getElementById('btn-memory-toggle');
+            const webSearchOn = (searchToggle && searchToggle.classList.contains('active')) ||
+                (topbarSearch && topbarSearch.classList.contains('active'));
+            const memoryOn = topbarMemory ? topbarMemory.classList.contains('active') : true;
+
             // Stream response
             let assistantEl = this._addMessage('assistant', '', true);
             let fullResponse = '';
@@ -92,7 +100,9 @@ const Chat = {
                     }
                     this._setGenerating(false);
                     Sidebar.refreshMemory();
-                }
+                },
+                // options
+                { webSearch: webSearchOn, useMemory: memoryOn }
             );
         } catch (error) {
             this._addMessage('assistant', `⚠️ Error: ${error.message}. Make sure the backend is running (\`python main.py\`).`);
@@ -104,8 +114,8 @@ const Chat = {
         const div = document.createElement('div');
         div.className = `message message-${role}`;
 
-        const avatar = role === 'user' ? '👤' : '🐉';
-        const roleName = role === 'user' ? 'You' : 'Blue Dragon';
+        const avatar = role === 'user' ? '👤' : '🐌';
+        const roleName = role === 'user' ? 'You' : 'Snaily';
 
         div.innerHTML = `
             <div class="message-avatar">${avatar}</div>

@@ -1,19 +1,22 @@
 """
-Blue Dragon AI Hub — Backend Entry Point
+Snaily — Backend Entry Point
 FastAPI server that orchestrates SLM, skills, memory, and tools.
 Also serves the frontend at http://localhost:8000
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from pathlib import Path
 import json
 import asyncio
 import shutil
+import logging
+import re
 
 from agent.loop import AgentLoop
 from agent.prompt_builder import PromptBuilder
@@ -29,21 +32,18 @@ from tools.memory_query import MemoryQueryTool
 from tiers.local import LocalInference
 from tiers.cloud import CloudInference
 
-# ── App Init ──────────────────────────────────────────────
+# ── Logging ───────────────────────────────────────────────
 
-app = FastAPI(
-    title="Blue Dragon AI Hub",
-    description="Local-first AI connector — contexts SLMs + skills + memory + search into one thing.",
-    version="0.1.0"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+logger = logging.getLogger(__name__)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ── Constants ─────────────────────────────────────────────
+
+MAX_SKILL_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+SAFE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-][a-zA-Z0-9_\-. ]{0,100}\.(md|yaml|yml)$')
 
 # ── Shared State ──────────────────────────────────────────
 
@@ -76,11 +76,56 @@ agent_loop = AgentLoop(
     model_manager=model_manager,
 )
 
+# ── Lifespan ──────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize components on server start, cleanup on shutdown."""
+    await memory_store.initialize()
+    skill_parser.load_all_skills()
+    logger.info("🐉 Blue Dragon AI Hub — Backend Ready")
+    logger.info(f"   Active skills: {len(skill_parser.active_skills)}")
+    logger.info(f"   Memory entries: {await memory_store.count()}")
+    print("🐉 Blue Dragon AI Hub — Backend Ready")
+    print(f"   Active skills: {len(skill_parser.active_skills)}")
+    print(f"   Memory entries: {await memory_store.count()}")
+    yield
+    # Shutdown cleanup (if needed in future)
+    logger.info("🐉 Blue Dragon AI Hub — Shutting down.")
+
+# ── App Init ──────────────────────────────────────────────
+
+app = FastAPI(
+    title="Blue Dragon AI Hub",
+    description="Local-first AI connector — contexts SLMs + skills + memory + search into one thing.",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ── Request/Response Models ───────────────────────────────
 
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None
+    web_search: Optional[bool] = False
+    use_memory: Optional[bool] = True
+
+    @field_validator('message')
+    @classmethod
+    def message_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('Message cannot be empty')
+        if len(v) > 32000:
+            raise ValueError('Message too long (max 32000 characters)')
+        return v.strip()
 
 class ChatResponse(BaseModel):
     reply: str
@@ -95,19 +140,22 @@ class TierSetting(BaseModel):
 class SkillDockRequest(BaseModel):
     filename: str
 
+    @field_validator('filename')
+    @classmethod
+    def filename_must_be_safe(cls, v: str) -> str:
+        """Prevent path traversal in filenames."""
+        # Strip any path components — only keep the filename
+        v = Path(v).name
+        if not v or '..' in v or '/' in v or '\\' in v:
+            raise ValueError('Invalid filename')
+        if not SAFE_FILENAME_PATTERN.match(v):
+            raise ValueError('Filename must be alphanumeric with .md, .yaml, or .yml extension')
+        return v
+
 class ModelDownloadRequest(BaseModel):
     model_name: str
 
-# ── Startup ───────────────────────────────────────────────
 
-@app.on_event("startup")
-async def startup():
-    """Initialize components on server start."""
-    await memory_store.initialize()
-    skill_parser.load_all_skills()
-    print("🐉 Blue Dragon AI Hub — Backend Ready")
-    print(f"   Active skills: {len(skill_parser.active_skills)}")
-    print(f"   Memory entries: {await memory_store.count()}")
 
 # ── Chat Endpoint ─────────────────────────────────────────
 
@@ -119,13 +167,18 @@ async def chat(request: ChatRequest):
             user_message=request.message,
             conversation_id=request.conversation_id,
             active_skills=skill_parser.active_skills,
+            web_search=request.web_search,
+            use_memory=request.use_memory,
         )
         return ChatResponse(
             reply=result["reply"],
             conversation_id=result["conversation_id"],
             tools_used=result.get("tools_used", []),
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception(f"Chat endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -137,6 +190,8 @@ async def chat_stream(request: ChatRequest):
             user_message=request.message,
             conversation_id=request.conversation_id,
             active_skills=skill_parser.active_skills,
+            web_search=request.web_search,
+            use_memory=request.use_memory,
         ):
             yield f"data: {json.dumps(chunk)}\n\n"
         yield "data: [DONE]\n\n"
@@ -170,6 +225,35 @@ async def deactivate_skill(request: SkillDockRequest):
     """Deactivate a skill."""
     skill_parser.deactivate(request.filename)
     return {"status": "deactivated", "filename": request.filename}
+
+@app.delete("/api/skills/{filename}")
+async def delete_skill(filename: str):
+    """Delete a skill file from the dock."""
+    # Sanitize filename
+    safe_name = Path(filename).name
+    if not safe_name or '..' in safe_name or '/' in safe_name or '\\' in safe_name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not SAFE_FILENAME_PATTERN.match(safe_name):
+        raise HTTPException(status_code=400, detail="Invalid filename format")
+
+    filepath = Path(__file__).parent / "skills" / "dock" / safe_name
+    try:
+        filepath.resolve().relative_to((Path(__file__).parent / "skills" / "dock").resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Filename escapes skill dock directory")
+
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail=f"Skill file '{safe_name}' not found")
+
+    try:
+        # Deactivate first if active
+        skill_parser.deactivate(safe_name)
+        filepath.unlink()
+        skill_parser.load_all_skills()
+        return {"status": "deleted", "filename": safe_name}
+    except Exception as e:
+        logger.exception(f"Skill delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/skills/validate")
 async def validate_skill(request: SkillDockRequest):
@@ -248,12 +332,33 @@ async def get_tier():
 @app.post("/api/settings/tier")
 async def set_tier(setting: TierSetting):
     """Switch inference tier (local / cloud)."""
-    agent_loop.set_tier(
-        tier=setting.tier,
-        api_key=setting.api_key,
-        api_provider=setting.api_provider,
-    )
-    return {"status": "updated", "tier": setting.tier}
+    try:
+        agent_loop.set_tier(
+            tier=setting.tier,
+            api_key=setting.api_key,
+            api_provider=setting.api_provider,
+        )
+        return {"status": "updated", "tier": setting.tier}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class SearchSetting(BaseModel):
+    firecrawl_api_key: str
+
+@app.get("/api/settings/search")
+async def get_search_settings():
+    """Get web search configuration status."""
+    return web_search_tool.get_config_status()
+
+@app.post("/api/settings/search")
+async def set_search_settings(setting: SearchSetting):
+    """Save Firecrawl Search credentials."""
+    if not setting.firecrawl_api_key or not setting.firecrawl_api_key.strip():
+        raise HTTPException(status_code=400, detail="Firecrawl API key is required")
+
+    web_search_tool.save_config(setting.firecrawl_api_key)
+    return {"status": "saved", "configured": True}
 
 @app.get("/api/health")
 async def health():
@@ -271,25 +376,41 @@ async def health():
 @app.post("/api/skills/upload")
 async def upload_skill(file: UploadFile = File(...)):
     """Upload a skill file to the dock via drag-and-drop."""
-    if not file.filename.endswith(('.md', '.yaml', '.yml')):
-        raise HTTPException(status_code=400, detail="Only .md, .yaml, .yml files allowed")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
 
-    dest = Path(__file__).parent / "skills" / "dock" / file.filename
+    # Sanitize filename — prevent path traversal
+    safe_name = Path(file.filename).name
+    if not safe_name or '..' in safe_name or '/' in safe_name or '\\' in safe_name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not SAFE_FILENAME_PATTERN.match(safe_name):
+        raise HTTPException(status_code=400, detail="Only .md, .yaml, .yml files allowed with safe characters")
+
+    # Read with size limit BEFORE writing to disk
+    content = await file.read()
+    if len(content) > MAX_SKILL_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large ({len(content) // 1024} KB). Max allowed: {MAX_SKILL_UPLOAD_BYTES // 1024} KB"
+        )
+
+    dest = Path(__file__).parent / "skills" / "dock" / safe_name
     try:
         with open(dest, "wb") as f:
-            content = await file.read()
             f.write(content)
         # Validate the new skill
-        result = skill_validator.validate_file(file.filename)
+        result = skill_validator.validate_file(safe_name)
         if not result["valid"]:
-            dest.unlink()  # Delete invalid file
+            dest.unlink(missing_ok=True)  # Delete invalid file
             raise HTTPException(status_code=400, detail=f"Invalid skill: {result['errors']}")
         # Reload skills
         skill_parser.load_all_skills()
-        return {"status": "uploaded", "filename": file.filename}
+        return {"status": "uploaded", "filename": safe_name}
     except HTTPException:
         raise
     except Exception as e:
+        dest.unlink(missing_ok=True)  # Clean up on error
+        logger.exception(f"Skill upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -304,7 +425,7 @@ async def serve_index():
     index_path = FRONTEND_DIR / "index.html"
     if index_path.exists():
         return FileResponse(str(index_path))
-    return {"message": "Blue Dragon AI Hub API. Frontend not found at expected path."}
+    return {"message": "Snaily API. Frontend not found at expected path."}
 
 
 # Mount static assets (CSS, JS) — MUST be after API routes
@@ -317,6 +438,6 @@ if FRONTEND_DIR.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    print("\n🐉 Starting Blue Dragon AI Hub...")
+    print("\n🐌 Starting Snaily...")
     print("   Open: http://127.0.0.1:8000\n")
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

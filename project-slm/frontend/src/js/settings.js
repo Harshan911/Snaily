@@ -138,6 +138,11 @@ const Settings = {
             this._saveCloudSettings();
         });
 
+        // Save search settings
+        document.getElementById('btn-save-search').addEventListener('click', () => {
+            this._saveSearchSettings();
+        });
+
         // Clear memory
         document.getElementById('btn-clear-memory').addEventListener('click', () => {
             this._clearMemory();
@@ -146,6 +151,7 @@ const Settings = {
 
     openSettings() {
         document.getElementById('modal-settings').classList.remove('hidden');
+        this._loadSearchSettings();
     },
 
     // ═══════════════════════════════════════════════════════
@@ -381,6 +387,69 @@ const Settings = {
             await API.setTier('cloud', apiKey, provider);
             this._showToast('Cloud settings saved ✓');
             this._closeAllModals();
+
+            // Sync UI — update provider label and tier buttons
+            const providerLabel = document.getElementById('input-provider-label');
+            const providerIcon = document.getElementById('input-toggle-provider').querySelector('.input-toggle-icon');
+            if (providerLabel) {
+                providerLabel.textContent = 'Cloud';
+                providerIcon.textContent = '☁️';
+            }
+
+            // Sync model label with provider name
+            const modelLabel = document.getElementById('input-model-label');
+            const providerNames = { openai: 'OpenAI', anthropic: 'Claude', google: 'Gemini' };
+            if (modelLabel) {
+                modelLabel.textContent = providerNames[provider] || provider;
+            }
+
+            // Update tier buttons
+            document.querySelectorAll('.tier-btn').forEach(b => b.classList.remove('active'));
+            const cloudBtn = document.querySelector('[data-tier="cloud"]');
+            if (cloudBtn) cloudBtn.classList.add('active');
+        } catch (e) {
+            this._showToast(`Failed to save: ${e.message}`, 'error');
+        }
+    },
+
+    async _loadSearchSettings() {
+        const statusEl = document.getElementById('search-config-status');
+        try {
+            const config = await API.getSearchSettings();
+            if (config.configured) {
+                statusEl.innerHTML = `
+                    <div class="status-badge configured">
+                        <span>✓ Configured</span>
+                        <small>Firecrawl API Key: ${config.api_key_preview}</small>
+                    </div>
+                `;
+            } else {
+                statusEl.innerHTML = `
+                    <div class="status-badge unconfigured">
+                        <span>⚠ Not Configured</span>
+                    </div>
+                `;
+            }
+        } catch (e) {
+            console.warn('Failed to load search settings');
+        }
+    },
+
+    async _saveSearchSettings() {
+        const apiKey = document.getElementById('firecrawl-api-key').value;
+
+        if (!apiKey) {
+            this._showToast('Firecrawl API Key is required.', 'error');
+            return;
+        }
+
+        try {
+            await API.setSearchSettings(apiKey);
+            this._showToast('Firecrawl Search settings saved ✓');
+            this._loadSearchSettings(); // Refresh status
+
+            // Clear inputs for security
+            document.getElementById('firecrawl-api-key').value = '';
         } catch (e) {
             this._showToast(`Failed to save: ${e.message}`, 'error');
         }

@@ -49,13 +49,15 @@ const API = {
         });
     },
 
-    async chatStream(message, conversationId = null, onToken, onDone) {
+    async chatStream(message, conversationId = null, onToken, onDone, options = {}) {
         const res = await fetch(`${this.BASE_URL}/api/chat/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 message,
                 conversation_id: conversationId,
+                web_search: options.webSearch || false,
+                use_memory: options.useMemory !== undefined ? options.useMemory : true,
             }),
         });
 
@@ -113,6 +115,10 @@ const API = {
         return this._post('/api/skills/deactivate', { filename });
     },
 
+    async deleteSkill(filename) {
+        return this._delete(`/api/skills/${encodeURIComponent(filename)}`);
+    },
+
     // ── Memory ────────────────────────────────────────────
 
     async getMemoryStats() {
@@ -156,6 +162,18 @@ const API = {
             tier,
             api_key: apiKey,
             api_provider: apiProvider,
+        });
+    },
+
+    // ── Search Settings ───────────────────────────────────
+
+    async getSearchSettings() {
+        return this._get('/api/settings/search');
+    },
+
+    async setSearchSettings(firecrawlApiKey) {
+        return this._post('/api/settings/search', {
+            firecrawl_api_key: firecrawlApiKey
         });
     },
 

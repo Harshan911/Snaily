@@ -6,6 +6,9 @@ Text-only. No code execution. Ever.
 from pathlib import Path
 from typing import Dict
 import frontmatter
+import logging
+
+logger = logging.getLogger(__name__)
 
 SKILL_DOCK_DIR = Path(__file__).parent / "dock"
 
@@ -27,6 +30,19 @@ BLOCKED_PATTERNS = [
     "rm -rf",
     "del /f",
     "format c:",
+    "!!python",  # YAML deserialization exploit
+    "!!binary",
+    "!!map",
+    "!!omap",
+    "!!pairs",
+    "!!set",
+    "__class__",
+    "__subclasses__",
+    "__globals__",
+    "__builtins__",
+    "os.path",
+    "sys.exit",
+    "importlib",
 ]
 
 REQUIRED_FIELDS = ["name", "description"]
@@ -47,9 +63,19 @@ class SkillValidator:
         4. Contains no dangerous patterns
         5. Is plain text only
         """
-        filepath = SKILL_DOCK_DIR / filename
+        # Sanitize filename — prevent path traversal
+        safe_name = Path(filename).name
+        if safe_name != filename or '..' in filename:
+            return {
+                "filename": filename,
+                "valid": False,
+                "errors": ["Invalid filename: contains path traversal characters"],
+                "warnings": [],
+            }
+
+        filepath = SKILL_DOCK_DIR / safe_name
         result = {
-            "filename": filename,
+            "filename": safe_name,
             "valid": True,
             "errors": [],
             "warnings": [],
@@ -58,7 +84,15 @@ class SkillValidator:
         # Check existence
         if not filepath.exists():
             result["valid"] = False
-            result["errors"].append(f"File not found: {filename}")
+            result["errors"].append(f"File not found: {safe_name}")
+            return result
+
+        # Verify the resolved path stays within dock directory
+        try:
+            filepath.resolve().relative_to(SKILL_DOCK_DIR.resolve())
+        except ValueError:
+            result["valid"] = False
+            result["errors"].append("File path escapes skill dock directory")
             return result
 
         # Check extension

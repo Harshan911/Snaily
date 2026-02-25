@@ -4,7 +4,10 @@ Supports OpenAI-compatible APIs (OpenAI, Anthropic, Google).
 """
 
 import json
+import logging
 from typing import List, Dict, AsyncGenerator
+
+logger = logging.getLogger(__name__)
 
 try:
     import httpx
@@ -70,11 +73,17 @@ class CloudInference:
 
     async def generate_stream(self, model: str, system_prompt: str,
                               messages: List[Dict]) -> AsyncGenerator:
-        """Streaming cloud response — falls back to non-streaming + yields all at once."""
-        # Simplified: full response then yield
-        # Full streaming per provider can be added later
-        response = await self.generate(model, system_prompt, messages)
-        yield response
+        """
+        Cloud streaming response.
+        NOTE: Currently falls back to non-streaming + yields all at once.
+        True SSE streaming per provider can be added later.
+        """
+        try:
+            response = await self.generate(model, system_prompt, messages)
+            yield response
+        except Exception as e:
+            logger.warning(f"Cloud stream failed: {e}")
+            yield f"⚠️ Cloud inference error: {str(e)}"
 
     # ── OpenAI Compatible ─────────────────────────────────
 
@@ -95,11 +104,21 @@ class CloudInference:
             config["auth_header"]: f"{config['auth_prefix']}{self.api_key}",
         }
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(config["base_url"], json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(config["base_url"], json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+        except httpx.ConnectError:
+            return "⚠️ Cannot connect to OpenAI API. Check your internet connection."
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                return "⚠️ Invalid API key. Check your OpenAI API key in Settings."
+            return f"⚠️ OpenAI API error: {e.response.status_code} {e.response.text[:200]}"
+        except Exception as e:
+            logger.warning(f"OpenAI generate failed: {e}")
+            return f"⚠️ OpenAI error: {str(e)}"
 
     # ── Anthropic ─────────────────────────────────────────
 
@@ -121,11 +140,21 @@ class CloudInference:
             "anthropic-version": "2023-06-01",
         }
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(config["base_url"], json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["content"][0]["text"]
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(config["base_url"], json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["content"][0]["text"]
+        except httpx.ConnectError:
+            return "⚠️ Cannot connect to Anthropic API. Check your internet connection."
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                return "⚠️ Invalid API key. Check your Anthropic API key in Settings."
+            return f"⚠️ Anthropic API error: {e.response.status_code} {e.response.text[:200]}"
+        except Exception as e:
+            logger.warning(f"Anthropic generate failed: {e}")
+            return f"⚠️ Anthropic error: {str(e)}"
 
     # ── Google Gemini ─────────────────────────────────────
 
@@ -153,8 +182,21 @@ class CloudInference:
 
         headers = {"Content-Type": "application/json"}
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+        except httpx.ConnectError:
+            return "⚠️ Cannot connect to Google API. Check your internet connection."
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401 or e.response.status_code == 403:
+                return "⚠️ Invalid API key. Check your Google API key in Settings."
+            return f"⚠️ Google API error: {e.response.status_code} {e.response.text[:200]}"
+        except (KeyError, IndexError) as e:
+            logger.warning(f"Google API unexpected response format: {e}")
+            return "⚠️ Unexpected response from Google API. The model may not be available."
+        except Exception as e:
+            logger.warning(f"Google generate failed: {e}")
+            return f"⚠️ Google error: {str(e)}"

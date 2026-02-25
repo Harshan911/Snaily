@@ -15,6 +15,14 @@ const Sidebar = {
         this.skillDock = document.getElementById('skill-dock');
         this.topbarModel = document.getElementById('topbar-model');
 
+        // Create hidden file input for skill upload
+        this._fileInput = document.createElement('input');
+        this._fileInput.type = 'file';
+        this._fileInput.accept = '.md,.yaml,.yml';
+        this._fileInput.style.display = 'none';
+        this._fileInput.addEventListener('change', (e) => this._handleFileSelect(e));
+        document.body.appendChild(this._fileInput);
+
         this._bindEvents();
         this._loadInitialData();
     },
@@ -46,6 +54,11 @@ const Sidebar = {
             btn.addEventListener('click', () => this._switchTier(btn.dataset.tier));
         });
 
+        // + button opens file picker
+        document.getElementById('btn-add-skill').addEventListener('click', () => {
+            this._fileInput.click();
+        });
+
         // Skill dock drag & drop
         this.skillDock.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -61,45 +74,83 @@ const Sidebar = {
             this.skillDock.classList.remove('drag-over');
 
             const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                const file = files[0];
-                // Validate extension
-                if (!file.name.endsWith('.md') && !file.name.endsWith('.yaml') && !file.name.endsWith('.yml')) {
-                    Settings._showToast('Only .md, .yaml, .yml skill files allowed.', 'error');
-                    return;
-                }
-
-                // Upload to backend
-                try {
-                    const formData = new FormData();
-                    formData.append('file', file);
-
-                    const res = await fetch(`${API.BASE_URL}/api/skills/upload`, {
-                        method: 'POST',
-                        body: formData,
-                    });
-
-                    if (!res.ok) {
-                        const err = await res.json().catch(() => ({}));
-                        throw new Error(err.detail || 'Upload failed');
-                    }
-
-                    Settings._showToast(`Skill "${file.name}" uploaded ✓`);
-                    await this.refreshSkills();
-                } catch (err) {
-                    Settings._showToast(`Failed to upload: ${err.message}`, 'error');
-                }
+            for (let i = 0; i < files.length; i++) {
+                await this._uploadSkillFile(files[i]);
             }
         });
 
-        // Toggle pills (web search, memory)
+        // Toggle pills (web search, memory) — synced with input area toggles
         document.getElementById('btn-web-search-toggle').addEventListener('click', (e) => {
-            e.currentTarget.classList.toggle('active');
+            const btn = e.currentTarget;
+            btn.classList.toggle('active');
+            const isActive = btn.classList.contains('active');
+
+            // Sync with input area search toggle
+            const inputSearch = document.getElementById('input-toggle-search');
+            if (inputSearch) {
+                if (isActive) {
+                    inputSearch.classList.add('active');
+                } else {
+                    inputSearch.classList.remove('active');
+                }
+            }
+
+            Settings._showToast(isActive ? '🔍 Web Search enabled — will search the web for your queries' : '🔍 Web Search disabled');
         });
 
         document.getElementById('btn-memory-toggle').addEventListener('click', (e) => {
-            e.currentTarget.classList.toggle('active');
+            const btn = e.currentTarget;
+            btn.classList.toggle('active');
+            const isActive = btn.classList.contains('active');
+            Settings._showToast(isActive ? '💾 Memory enabled' : '💾 Memory disabled');
         });
+    },
+
+    // ── File Upload ────────────────────────────────────────
+
+    _handleFileSelect(e) {
+        const files = e.target.files;
+        if (files.length > 0) {
+            for (let i = 0; i < files.length; i++) {
+                this._uploadSkillFile(files[i]);
+            }
+        }
+        // Reset so same file can be re-selected
+        this._fileInput.value = '';
+    },
+
+    async _uploadSkillFile(file) {
+        // Validate extension
+        if (!file.name.endsWith('.md') && !file.name.endsWith('.yaml') && !file.name.endsWith('.yml')) {
+            Settings._showToast('Only .md, .yaml, .yml skill files allowed.', 'error');
+            return;
+        }
+
+        // Validate size (5 MB)
+        if (file.size > 5 * 1024 * 1024) {
+            Settings._showToast(`File too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Max: 5 MB`, 'error');
+            return;
+        }
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const res = await fetch(`${API.BASE_URL}/api/skills/upload`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || 'Upload failed');
+            }
+
+            Settings._showToast(`Skill "${file.name}" uploaded ✓`);
+            await this.refreshSkills();
+        } catch (err) {
+            Settings._showToast(`Failed to upload: ${err.message}`, 'error');
+        }
     },
 
     async _loadInitialData() {
@@ -162,8 +213,9 @@ const Sidebar = {
             await API.switchModel(name);
             this.modelSelector.classList.remove('open');
             await this.refreshModel();
+            Settings._showToast(`Switched to ${name} ✓`);
         } catch (e) {
-            alert(`Failed to switch model: ${e.message}`);
+            Settings._showToast(`Failed to switch model: ${e.message}`, 'error');
         }
     },
 
@@ -176,6 +228,7 @@ const Sidebar = {
         } else {
             try {
                 await API.setTier('local');
+                Settings._showToast('Switched to Local inference ✓');
             } catch (e) {
                 // Backend offline — that's OK
             }
@@ -187,7 +240,6 @@ const Sidebar = {
                     Settings.openModelPortal();
                 }
             } catch (e) {
-                // Backend offline → still open portal (it works offline with hardcoded list)
                 Settings.openModelPortal();
             }
         }
@@ -205,7 +257,7 @@ const Sidebar = {
                 this.skillDock.innerHTML = `
                     <div class="skill-empty-state">
                         <span>📄</span>
-                        <p>Drop .md skill files here</p>
+                        <p>Drop .md skill files here or click +</p>
                     </div>
                 `;
                 this._updateActiveSkillBadges([]);
@@ -220,16 +272,31 @@ const Sidebar = {
                 div.innerHTML = `
                     <span>📄</span>
                     <span class="skill-item-name" title="${skill.description}">${skill.name}</span>
-                    <button class="skill-item-toggle ${isActive ? 'active' : ''}" 
-                            data-filename="${skill.filename}"
-                            title="${isActive ? 'Deactivate' : 'Activate'}">
-                        ${isActive ? '✓' : ''}
-                    </button>
+                    <div class="skill-item-actions">
+                        <button class="skill-item-toggle ${isActive ? 'active' : ''}" 
+                                data-filename="${skill.filename}"
+                                title="${isActive ? 'Deactivate' : 'Activate'}">
+                            ${isActive ? '✓' : ''}
+                        </button>
+                        <button class="skill-item-delete" 
+                                data-filename="${skill.filename}"
+                                title="Delete skill file">
+                            ✕
+                        </button>
+                    </div>
                 `;
 
+                // Toggle activate/deactivate
                 const toggle = div.querySelector('.skill-item-toggle');
                 toggle.addEventListener('click', () => {
                     this._toggleSkill(skill.filename, !isActive);
+                });
+
+                // Delete button
+                const deleteBtn = div.querySelector('.skill-item-delete');
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this._deleteSkill(skill.filename, skill.name);
                 });
 
                 this.skillDock.appendChild(div);
@@ -245,12 +312,26 @@ const Sidebar = {
         try {
             if (activate) {
                 await API.activateSkill(filename);
+                Settings._showToast(`Skill activated ✓`);
             } else {
                 await API.deactivateSkill(filename);
+                Settings._showToast(`Skill deactivated`);
             }
             await this.refreshSkills();
         } catch (e) {
-            alert(`Failed to ${activate ? 'activate' : 'deactivate'} skill: ${e.message}`);
+            Settings._showToast(`Failed: ${e.message}`, 'error');
+        }
+    },
+
+    async _deleteSkill(filename, skillName) {
+        if (!confirm(`Delete skill "${skillName || filename}"? This cannot be undone.`)) return;
+
+        try {
+            await API.deleteSkill(filename);
+            Settings._showToast(`Skill "${skillName || filename}" deleted ✓`);
+            await this.refreshSkills();
+        } catch (e) {
+            Settings._showToast(`Failed to delete: ${e.message}`, 'error');
         }
     },
 

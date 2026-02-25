@@ -1,4 +1,4 @@
-# Blue Dragon AI Hub — Full Build Plan
+# Snaily — Full Build Plan
 
 > **What it is:** Not an AI software. A connector that contexts SLMs + skills + memory + web search into one thing.
 > **Who it's for:** Everyone — old laptops, no GPU, minimum specs. Open source. Free will.

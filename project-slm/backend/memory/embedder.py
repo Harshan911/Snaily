@@ -6,6 +6,9 @@ Falls back to simple bag-of-words if sentence-transformers unavailable.
 
 from typing import List
 import hashlib
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -15,6 +18,7 @@ except Exception:
 
 # all-MiniLM-L6-v2: 90 MB, fast on CPU, good quality for RAG
 DEFAULT_MODEL = "all-MiniLM-L6-v2"
+EMBEDDING_DIM = 384  # MiniLM output dimension
 
 
 class Embedder:
@@ -29,15 +33,21 @@ class Embedder:
         """Lazy load — only loads when first embedding is requested."""
         if self._use_st and not self._model:
             try:
+                logger.info(f"Loading embedding model: {self.model_name} ...")
                 print(f"   Loading embedding model: {self.model_name} ...")
                 self._model = SentenceTransformer(self.model_name)
+                logger.info("Embedding model loaded ✓")
                 print(f"   Embedding model loaded ✓")
             except Exception as e:
+                logger.warning(f"Embedding model failed ({e}), using fallback")
                 print(f"   ⚠️ Embedding model failed ({e}), using fallback")
                 self._use_st = False
 
     def embed(self, text: str) -> List[float]:
         """Embed a single text string → vector."""
+        if not text or not text.strip():
+            return [0.0] * EMBEDDING_DIM
+
         self._load_model()
 
         if self._use_st and self._model:
@@ -58,8 +68,24 @@ class Embedder:
         return [self._fallback_embed(t) for t in texts]
 
     def _fallback_embed(self, text: str) -> List[float]:
-        """Simple deterministic pseudo-embedding using hash."""
-        # This is NOT a real embedding — just a placeholder that allows
-        # the system to run without sentence-transformers
-        h = hashlib.sha384(text.lower().encode()).digest()
-        return [((b - 128) / 128.0) for b in h[:384]]
+        """
+        Deterministic pseudo-embedding using iterative hashing.
+        Produces exactly EMBEDDING_DIM (384) floats.
+        NOTE: This is NOT a real embedding — just a placeholder that allows
+        the system to run without sentence-transformers installed.
+        """
+        if not text or not text.strip():
+            return [0.0] * EMBEDDING_DIM
+
+        result = []
+        seed = text.lower().encode("utf-8")
+        counter = 0
+        while len(result) < EMBEDDING_DIM:
+            data = seed + counter.to_bytes(4, "big")
+            h = hashlib.sha256(data).digest()
+            for b in h:
+                if len(result) >= EMBEDDING_DIM:
+                    break
+                result.append((b - 128) / 128.0)
+            counter += 1
+        return result[:EMBEDDING_DIM]
