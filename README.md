@@ -1,6 +1,6 @@
 <p align="center">
   <br />
-  <span style="font-size: 64px;">🐌</span>
+  <img src="frontend/src/snaily-logo.png" width="100" alt="Snaily Logo" />
   <br />
   <h1 align="center">Snaily</h1>
   <p align="center">
@@ -36,13 +36,13 @@
 
 ## 🧐 What Is This?
 
-**Blue Dragon AI Hub** is an open-source, local-first desktop application that connects Small Language Models (SLMs) with a modular skill system, persistent memory, and live web search — all running on **your** machine with **zero telemetry**.
+**Snaily** is an open-source, local-first desktop application that connects Small Language Models (SLMs) with a modular skill system, persistent memory, and live web search — all running on **your** machine with **zero telemetry**.
 
 Think of it as a personal AI workbench: you pick the brain (local SLM or cloud API), load skill files to specialize it, and it remembers your conversations across sessions. Everything works offline after initial setup. No data ever leaves your machine.
 
 ### Who is it for?
 
-Everyone. Old laptops, machines with no GPU, Raspberry Pi 5 — if it runs Python, it runs Blue Dragon.
+Everyone. Old laptops, machines with no GPU, Raspberry Pi 5 — if it runs Python, it runs Snaily.
 
 <br />
 
@@ -53,7 +53,7 @@ Everyone. Old laptops, machines with no GPU, Raspberry Pi 5 — if it runs Pytho
 | 🧠 **SLM Runtime** | Run models locally via [Ollama](https://ollama.com) — Qwen, Llama, Mistral, Phi, and more |
 | 📄 **Skill Files** | Drop `.md` / `.yaml` files to give your AI new abilities — no code required |
 | 💾 **Persistent Memory** | Cross-session RAG memory powered by ChromaDB + Sentence Transformers |
-| 🔍 **Web Search** | Live DuckDuckGo search — the AI decides when to look things up |
+| 🔍 **Web Search** | Live web search via Firecrawl — the AI decides when to look things up |
 | ☁️ **Tier System** | Seamlessly switch between local inference and cloud APIs (OpenAI / Claude / Gemini) |
 | 📥 **Model Portal** | Browse, download, and switch models with one click |
 | 🔒 **Zero Telemetry** | No data leaves your machine. Ever. |
@@ -109,8 +109,8 @@ Everyone. Old laptops, machines with no GPU, Raspberry Pi 5 — if it runs Pytho
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/blue-dragon-ai-hub.git
-cd blue-dragon-ai-hub
+git clone https://github.com/yourusername/snaily.git
+cd snaily
 ```
 
 ### 2. Set Up the Backend
@@ -217,7 +217,7 @@ project-slm/
 
 ## 📄 Skill Files
 
-Skill files are the heart of Blue Dragon. They're simple `.md` files with YAML frontmatter that teach the AI new behaviors — **no code, no plugins, no risk**.
+Skill files are the heart of Snaily. They're simple `.md` files with YAML frontmatter that teach the AI new behaviors — **no code, no plugins, no risk**.
 
 ### How They Work
 
@@ -440,12 +440,12 @@ Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more informa
 - [ChromaDB](https://www.trychroma.com) — lightweight, embeddable vector database
 - [Sentence Transformers](https://sbert.net) — efficient CPU-friendly embeddings
 - [Tauri](https://tauri.app) — for tiny, fast, cross-platform desktop apps
-- [DuckDuckGo](https://duckduckgo.com) — privacy-respecting search with no API keys
+- [Firecrawl](https://firecrawl.dev) — LLM-ready web crawling and search
 
 ---
 
 <p align="center">
-  <strong>🐉 Built with love for everyone — old laptops, no GPU, minimum specs.</strong>
+  <strong>🐌 Built with love for everyone — old laptops, no GPU, minimum specs.</strong>
   <br />
   <sub>Open source. Free will. Your data stays yours.</sub>
 </p>
