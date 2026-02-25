@@ -1,8 +1,8 @@
 <p align="center">
   <br />
-  <span style="font-size: 64px;">🐉</span>
+  <span style="font-size: 64px;">🐌</span>
   <br />
-  <h1 align="center">Blue Dragon AI Hub</h1>
+  <h1 align="center">Snaily</h1>
   <p align="center">
     <strong>Your local-first AI connector — private, fast, yours.</strong>
   </p>
